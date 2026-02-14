@@ -357,19 +357,21 @@ EOF
 
     cat << EOF | kubectl apply -f -
 apiVersion: cert-manager.io/v1
-kind: Issuer
+kind: ClusterIssuer
 metadata:
   name: letsencrypt-prod
 spec:
   acme:
     server: https://acme-v02.api.letsencrypt.org/directory
     email: pandocloud@outlook.com
+    privateKeySecretRef:
+      name: letsencrypt-issuer-key
     solvers:
     - http01:
-    gatewayHTTPRoute:
-      parentRefs:
-      - name: shared-gateway
-        namespace: nginx-gateway
-        kind: Gateway
+        gatewayHTTPRoute:
+          parentRefs:
+          - name: shared-gateway
+            namespace: nginx-gateway
+            kind: Gateway
 EOF
 fi # if $gateway=true
