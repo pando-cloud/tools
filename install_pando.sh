@@ -209,7 +209,7 @@ fi
 # If this is going to be a gateway/proxy node for the network then setup a Gateway API controller
 if [ "$GATEWAY" = "true" ]; then
     # Install nginx-gateway-fabric
-    run_step "Installing nginx-gateway-fabric"
+    echo "Installing nginx-gateway-fabric"
     kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
     kubectl kustomize "https://github.com/nginx/nginx-gateway-fabric/config/crd/gateway-api/standard?ref=v2.2.1" \
     | kubectl apply -f -
@@ -234,22 +234,22 @@ if [ "$GATEWAY" = "true" ]; then
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
-name: shared-gateway
-namespace: nginx-gateway
+  name: shared-gateway
+  namespace: nginx-gateway
 spec:
-gatewayClassName: nginx
-listeners:
-- name: http
+  gatewayClassName: nginx
+  listeners:
+  - name: http
     protocol: HTTP
     port: 80
     allowedRoutes:
-    namespaces:
+      namespaces:
         from: All
-- name: https
+  - name: https
     protocol: HTTPS
     port: 443
     allowedRoutes:
-    namespaces:
+      namespaces:
         from: All
 EOF
     result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
@@ -269,7 +269,7 @@ EOF
     HTTPS_PORT=`kubectl -n nginx-gateway get svc shared-gateway -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}'`
 
     # Set up nginx reverse proxy
-    run_step "Installing nginx reverse proxy"
+    echo "Installing nginx reverse proxy"
     if [[ -e /etc/redhat-release ]]; then
     if [ ! `dnf list installed | grep nginx` ]; then
         echo "Installing nginx for reverse proxy..."
@@ -333,7 +333,7 @@ EOF
     echo "Reverse proxy is setup."
 
     # Install cert-manager
-    run_step "Installing cert-manager"
+    echo "Installing cert-manager"
     
     helm upgrade --install cert-manager oci://quay.io/jetstack/charts/cert-manager --namespace cert-manager --create-namespace \
         --set config.apiVersion="controller.config.cert-manager.io/v1alpha1" \
@@ -359,17 +359,17 @@ EOF
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
-name: letsencrypt-prod
+  name: letsencrypt-prod
 spec:
-acme:
+  acme:
     server: https://acme-v02.api.letsencrypt.org/directory
     email: pandocloud@outlook.com
     solvers:
     - http01:
     gatewayHTTPRoute:
-        parentRefs:
-        - name: shared-gateway
-            namespace: nginx-gateway
-            kind: Gateway
+      parentRefs:
+      - name: shared-gateway
+        namespace: nginx-gateway
+        kind: Gateway
 EOF
 fi # if $gateway=true
