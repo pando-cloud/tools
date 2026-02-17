@@ -434,29 +434,35 @@ EOF
     # Set up nginx reverse proxy
     echo "Installing nginx reverse proxy"
     if [[ -e /etc/redhat-release ]]; then
-    if [ ! `dnf list installed | grep nginx` ]; then
-        echo "Installing nginx for reverse proxy..."
-        sudo dnf install nginx libnginx-mod-stream -y
-        if [ $? -ne 0 ]; then
-        echo "There was a problem installing nginx reverse proxy."
-        exit 1
+        if [ ! `dnf list installed | grep nginx` ]; then
+            echo "Installing nginx for reverse proxy..."
+            sudo dnf install nginx libnginx-mod-stream -y
+            if [ $? -ne 0 ]; then
+            echo "There was a problem installing nginx reverse proxy."
+            exit 1
+            fi
         fi
-    fi
     else
-    if [[ ! `apt list --installed | grep nginx` ]]; then
-        echo "Installing nginx for reverse proxy..."
-        sudo apt-get install nginx libnginx-mod-stream -y
-        if [ $? -ne 0 ]; then
-        echo "There was a problem installing nginx reverse proxy."
-        exit 1
+        if [[ ! `apt list --installed | grep nginx` ]]; then
+            echo "Installing nginx for reverse proxy..."
+            sudo apt-get install nginx libnginx-mod-stream -y
+            if [ $? -ne 0 ]; then
+            echo "There was a problem installing nginx reverse proxy."
+            exit 1
+            fi
         fi
     fi
-    fi
-    if [ `cat /etc/nginx/nginx.conf | grep "proxy_pass 127.0.0.1:30080" | wc -l` -eq 0 ]; then
-    echo "Backing up nginx.conf..."
-    sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
-    echo "Writing nginx configuration..."
-    cat << EOF >> /etc/nginx/nginx.conf
+
+    # Check if we've already written to this file before
+    if [ `cat /etc/nginx/nginx.conf | grep -zE 'listen 80;[[:space:]]+proxy_pass 127\.0\.0\.1:[0-9]{1,5};'` ]; then
+        echo "Updating nginx configuration..."
+        sed -Ez 's|stream \{([^}]|\n)*\}|stream {\n    server {\n        listen 80;\n        proxy_pass 127.0.0.1:'"$HTTP_PORT"';\n    }\n    server {\n        listen 443;\n        proxy_pass 127.0.0.1:'"$HTTPS_PORT"';\n    }\n}|' /etc/nginx/nginx.conf
+    else
+        echo "Backing up nginx.conf..."
+        sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
+
+        echo "Writing nginx configuration..."
+        cat << EOF >> /etc/nginx/nginx.conf
 
 stream {
     server {
@@ -469,9 +475,11 @@ stream {
     }
 }
 EOF
-    if [[ -f /etc/nginx/sites-enabled/default ]]; then
-        sudo rm /etc/nginx/sites-enabled/default
+        if [[ -f /etc/nginx/sites-enabled/default ]]; then
+            sudo rm /etc/nginx/sites-enabled/default
+        fi
     fi
+    
     sudo systemctl restart nginx
     if [ $? -ne 0 ]; then
         echo "There was a problem restarting nginx reverse proxy."
