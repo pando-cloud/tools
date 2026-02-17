@@ -322,7 +322,7 @@ if [ `kubectl -n submariner-operator get pods | grep ' Running '| wc -l` -eq 0 ]
     echo "Joining Pando Network..."
     SUBCTL_OPTS="--clusterid $CLUSTERID --enable-clusterset-ip --cable-driver wireguard"
     if [ "$GATEWAY" = "false" ]; then
-        SUBCTL_OPTS+=" --natt=true --disable-gateway"
+        SUBCTL_OPTS+=" --natt=true"
     else
         SUBCTL_OPTS+=" --natt=false --preferred-server"
     fi
