@@ -454,7 +454,7 @@ EOF
     fi
 
     # Check if we've already written to this file before
-    if [ `cat /etc/nginx/nginx.conf | grep -zE 'listen 80;[[:space:]]+proxy_pass 127\.0\.0\.1:[0-9]{1,5};'` ]; then
+    if grep -qzE 'listen 80;[[:space:]]+proxy_pass 127\.0\.0\.1:[0-9]{1,5};' /etc/nginx/nginx.conf; then
         echo "Updating nginx configuration..."
         sed -Ez 's|stream \{([^}]|\n)*\}|stream {\n    server {\n        listen 80;\n        proxy_pass 127.0.0.1:'"$HTTP_PORT"';\n    }\n    server {\n        listen 443;\n        proxy_pass 127.0.0.1:'"$HTTPS_PORT"';\n    }\n}|' /etc/nginx/nginx.conf
     else
