@@ -293,7 +293,7 @@ fi
 echo "Checking k3s has started..."
 result=`kubectl get nodes | grep ' Ready '| wc -l`
 startTime=`date +%s`
-while [[ $result -eq 0 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+while [[ $result -eq 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
     sleep 2
     echo "Waiting for k3s nodes to be ready..."
     result=`kubectl get nodes | grep ' Ready '| wc -l`
@@ -329,12 +329,18 @@ if [ `kubectl -n submariner-operator get pods | grep ' Running '| wc -l` -eq 0 ]
 fi
 
 # Check that all submariners pods are running
-result=`kubectl -n submariner-operator get pods | grep ' Running '| wc -l`
+labels='app=submariner-routeagent|app=submariner-lighthouse-agent|app=submariner-lighthouse-coredns'
+if [ "$GATEWAY" = "true" ]; then
+    labels+='|app=submariner-gateway'
+fi
+numPodsExpected=$(printf "%s" "$labels" | tr -cd '|' | wc -c)
+numPodsExpected=$(( $numPodsExpected + 1 ))
+result=`kubectl -n submariner-operator get pods --show-labels | grep -E $labels | grep ' Running '| wc -l`
 startTime=`date +%s`
-while [[ $result -lt 8 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+while [[ $result -lt $numPodsExpected && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
     sleep 2
     echo "Waiting for submariner to be ready..."
-    result=`kubectl -n submariner-operator get pods | grep ' Running '| wc -l`
+    result=`kubectl -n submariner-operator get pods --show-labels | grep -E $labels | grep ' Running '| wc -l`
 done
 if [ $result -eq 0 ]; then
     echo "There was a problem installing submariner..."
@@ -343,19 +349,21 @@ else
     echo "submariner is running!"
 fi
 
-# Check that we have a connection to at least one of the primary proxy clusters
-result=`subctl show connections | grep -E '(dfw|sjc|was)-proxy' | grep ' connected ' | wc -l`
-startTime=`date +%s`
-while [[ $result -gt 0 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
-    sleep 2
-    echo "Waiting for connection to gateway..."
-    result=`subctl show connections | grep -E '(dfw|sjc|was)-proxy' | grep ' connected ' | wc -l`
-done
-if [ $result -eq 0 ]; then
-    echo "There was a problem establishing a connection to the gateway..."
-    exit 1
-else
-    echo "Pando is up and running. Welcome to the network!"
+# Check that we have a connection to at least one of the primary gateway cluster.
+if [ "$GATEWAY" = "false" ]; then
+    result=`subctl show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
+    startTime=`date +%s`
+    while [[ $result -gt 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+        sleep 2
+        echo "Waiting for connection to gateway..."
+        result=`subctl show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
+    done
+    if [ $result -eq 0 ]; then
+        echo "There was a problem establishing a connection to the gateway..."
+        exit 1
+    else
+        echo "Pando is up and running. Welcome to the network!"
+    fi
 fi
 
 # If this is going to be a gateway/proxy node for the network then setup a Gateway API controller
@@ -369,7 +377,7 @@ if [ "$GATEWAY" = "true" ]; then
     echo "Checking nginx-gateway-fabric has started..."
     result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
     sleep 2
     echo "Waiting for nginx-gateway-fabric to start..."
     result=`kubectl -n nginx get pods | grep -v 'Running' | wc -l`
@@ -406,7 +414,7 @@ spec:
 EOF
     result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
     sleep 2
     echo "Waiting for shared-gateway to be ready..."
     result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
@@ -469,7 +477,7 @@ EOF
     sleep 10
     NGINX_READY=0
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for nginx to start..."
         curl http://localhost
@@ -495,7 +503,7 @@ EOF
     echo "Checking cert-manager has started..."
     result=`kubectl -n cert-manager get pods | grep -v 'Running' | wc -l`
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for cert-manager to start..."
         result=`kubectl -n cert-manager get pods | grep -v 'Running' | wc -l`
