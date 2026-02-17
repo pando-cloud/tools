@@ -32,7 +32,8 @@ check_cidr() {
 
 # Returns the next CIDR range from the given list
 get_next_cidr() {
-    local DESIRED_PREFIX="$2"
+    local DESIRED_CIDR="$2"
+    local DESIRED_PREFIX="${2#*/}"
 
     # Sort numerically
     local CIDRS=$(echo "$1" | while read -r cidr; do
@@ -41,10 +42,11 @@ get_next_cidr() {
 
     # Retrieve last CIDR from sorted list
     local LAST_CIDR=$(echo "$CIDRS" | tail -n1)
+    LAST_CIDR="${LAST_CIDR:-$DESIRED_CIDR}"
     local PREFIX="${LAST_CIDR#*/}"
     local BASE="${LAST_CIDR%/*}"
     read a b c d <<< "${BASE//./ }"
-    local NEW=""
+    local NEW="$2"
 
     # Increment the network portion based on prefix
     case "$PREFIX" in
@@ -218,8 +220,7 @@ IN_USE_CIDRS=$(echo "$clusters" | jq -r '.items[].spec.cluster_cidr[]?, .items[]
 # echo "IN_USE_CIDRS=$IN_USE_CIDRS"
 
 if [ "$GENERATE_CLUSTER_CIDR" = "true" ]; then
-    CLUSTER_PREFIX="${K3S_CLUSTER_CIDR#*/}"
-    K3S_CLUSTER_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$CLUSTER_PREFIX")
+    K3S_CLUSTER_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$K3S_CLUSTER_CIDR")
 fi
 if check_cidr "$K3S_CLUSTER_CIDR" "$clusters"; then
     echo "The specified cluster CIDR is already in use. Please select another or remove the --cluster-cidr argument to have a range selected automatically."
@@ -227,10 +228,9 @@ if check_cidr "$K3S_CLUSTER_CIDR" "$clusters"; then
 fi
 
 if [ "$GENERATE_SERVICE_CIDR" = "true" ]; then
-    SERVICE_PREFIX="${K3S_SERVICE_CIDR#*/}"
     IN_USE_CIDRS="$IN_USE_CIDRS
 $K3S_CLUSTER_CIDR"
-    K3S_SERVICE_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$SERVICE_PREFIX")
+    K3S_SERVICE_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$K3S_SERVICE_CIDR")
 fi
 if check_cidr "$K3S_SERVICE_CIDR" "$clusters"; then
     echo "The specified service CIDR is already in use. Please select another or remove the --service-cidr argument to have a range selected automatically."
