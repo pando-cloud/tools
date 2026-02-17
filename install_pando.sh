@@ -1,9 +1,85 @@
 #!/usr/bin/env bash
 CLUSTERID=`hostname`
+K3S_CLUSTER_CIDR="10.0.0.0/24"
+K3S_SERVICE_CIDR="10.0.1.0/24"
 K3S_OPTIONS="--disable=traefik"
+GENERATE_CLUSTER_CIDR=true
+GENERATE_SERVICE_CIDR=true
 GATEWAY=false
 UNINSTALL=false
 
+# Convert CIDRs to sortable numeric form
+cidr_to_int() {
+  local ip="${1%/*}"
+  IFS='.' read -r a b c d <<< "$ip"
+  echo $(( a * 256 * 256 * 256 + b * 256 * 256 + c * 256 + d ))
+}
+
+# Checks that the given CIDR range is not currently in use
+#  @cidr The CIDR range to check
+#  @clusters The clusters data to check from
+#  @returns `false` if the given CIDR range is not found in the cluster, otherwise `true`.
+check_cidr() {
+    local CIDR="${1%/*}"
+    local IN_USE=$(echo "$2" | jq -r '.items[].spec.cluster_cidr[]?, .items[].spec.service_cidr[]?');
+
+    if [[ "$IN_USE" == *"$CIDR"* ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Returns the next CIDR range from the given list
+get_next_cidr() {
+    local DESIRED_PREFIX="$2"
+
+    # Sort numerically
+    local CIDRS=$(echo "$1" | while read -r cidr; do
+        printf "%s %s\n" "$(cidr_to_int "$cidr")" "$cidr"
+    done | sort -n | awk '{print $2}')
+
+    # Retrieve last CIDR from sorted list
+    local LAST_CIDR=$(echo "$CIDRS" | tail -n1)
+    local PREFIX="${LAST_CIDR#*/}"
+    local BASE="${LAST_CIDR%/*}"
+    read a b c d <<< "${BASE//./ }"
+    local NEW=""
+
+    # Increment the network portion based on prefix
+    case "$PREFIX" in
+    24)
+        # Increment the third octet
+        c=$((c + 1))
+        if [ $b -gt 255 ]; then
+            b=$((b + 1 ))
+            c=0
+            if [ $b -gt 255 ]; then
+                echo "No more available CIDR range."
+                exit 1
+            fi
+        fi
+        NEW="$a.$b.$c.0/$DESIRED_PREFIX"
+        ;;
+    16)
+        # Increment the second octet
+        b=$((b + 1))
+        if [ $b -gt 255 ]; then
+            echo "No more available CIDR range."
+            exit 1
+        fi
+        NEW="$a.$b.0.0/$DESIRED_PREFIX"
+        ;;
+    *)
+        echo "Unsupported prefix: /$PREFIX"
+        exit 1
+        ;;
+    esac
+
+    echo $NEW
+}
+
+# Removes everything that a previous run installed
 uninstall() {
   echo "Removing k3s..."
   sudo /usr/local/bin/k3s-uninstall.sh
@@ -13,12 +89,14 @@ uninstall() {
   echo "Uninstall complete!"
 }
 
-GETOPT=$(getopt -o g,o,u,h --long clusterid:,k3s-options:,gateway,uninstall,help -- "$@")
+GETOPT=$(getopt -o g,o,u,h --long clusterid:,cluster-cidr:,service-cidr:,k3s-options:,gateway,uninstall,help -- "$@")
 eval set -- "$GETOPT"
 while true
 do
     case "$1" in
         --clusterid) CLUSTERID="$2"; shift 2;;
+        --cluster-cidr) K3S_CLUSTER_CIDR="$2"; GENERATE_CLUSTER_CIDR=false; shift 2;;
+        --service-cidr) K3S_SERVICE_CIDR="$2"; GENERATE_SERVICE_CIDR=false; shift 2;;
         --k3s-options) K3S_OPTIONS+=" $2"; shift 2;;
         -g | --gateway) GATEWAY=true; shift;;
         --uninstall) UNINSTALL=true; shift;;
@@ -27,6 +105,8 @@ do
 
           echo "Usage:"
           echo -e "\t--clusterid <name>\t\tThe unique name of the machine to register to PandoNet. Defaults to `hostname`"
+          echo -e "\t--cluster-cidr <cidr>\t\tThe unique CIDR range of the k3s cluster to use. If not set an CIDR will be automatically assigned based upon network available."
+          echo -e "\t--service-cidr <cidr>\t\tThe unique CIDR range of the k3s cluster to use. If not set an CIDR will be automatically assigned based upon network available."
           echo -e "\t-o --k3s-option <option>\t\tThe list of options to pass to k3s. Defaults to `--disable=traefik`"
           echo -e "\t-g --gateway\t\tMarks this machine as a gateway/proxy on the network. Requires a public static IP address."
           echo -e "\t-u --uninstall\t\tUninstalls all PandoNet software and configuration."
@@ -45,47 +125,6 @@ if [ "$UNINSTALL" = "true" ]; then
     uninstall
     exit 0
 fi
-
-echo "Configuration:"
-echo "CLUSTERID=$CLUSTERID"
-echo "K3S_OPTIONS=$K3S_OPTIONS"
-echo "GATEWAY=$GATEWAY"
-
-# Install k3s
-if [ `kubectl get nodes| grep ' Ready '| wc -l` -eq 0 ]; then
-    echo "Installing k3s..."
-    curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" INSTALL_K3S_EXEC="$K3S_OPTIONS" sh -
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-    if [[ `grep "export KUBECONFIG=$KUBECONFIG" ~/.bashrc |wc -l` -eq 0 ]]; then
-        echo "export KUBECONFIG=$KUBECONFIG" >> ~/.bashrc
-    fi
-fi
-
-echo "Checking k3s has started..."
-result=`kubectl get nodes | grep ' Ready '| wc -l`
-startTime=`date +%s`
-while [[ $result -eq 0 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
-    sleep 2
-    echo "Waiting for k3s nodes to be ready..."
-    result=`kubectl get nodes | grep ' Ready '| wc -l`
-done
-if [ $result -eq 0 ]; then
-    echo "There was a problem installing k3s..."
-    exit 1
-else
-    echo "k3s is running!"
-fi
-
-# If gateway is enabled, add the node label
-if [ "$GATEWAY" = "true" ]; then
-    kubectl get nodes -o name | xargs -I{} kubectl label {} "submariner.io/gateway=true"
-fi
-
-# Install subctl
-echo "Installing subctl..."
-curl -Ls https://get.submariner.io | bash
-export PATH=$PATH:~/.local/bin
-echo export PATH=\$PATH:~/.local/bin >> ~/.profile
 
 # Create the broker-info.subm file needed to join PandoNet
 mkdir -p ~/.pando
@@ -167,11 +206,90 @@ ICAgfQogIH0sCiAgInNlcnZpY2VEaXNjb3ZlcnkiOiB0cnVlLAogICJDb21wb25lbnRzIjogWwog
 ICAgImNvbm5lY3Rpdml0eSIsCiAgICAic2VydmljZS1kaXNjb3ZlcnkiCiAgXQp9Cg==
 EOF
 
+# Extract the broker's API connection info from the broker-info.subm file
+brokerURL=$(cat ~/.pando/broker-info.subm | base64 -d | jq -r '.brokerURL')
+namespace=$(cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.metadata.namespace')
+auth_token=$(cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.data.token' | base64 -d)
+cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.data."ca.crt"' | base64 -d > ~/.pando/ca.crt
+
+# Retrieve the cluster list
+clusters=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/clusters)
+IN_USE_CIDRS=$(echo "$clusters" | jq -r '.items[].spec.cluster_cidr[]?, .items[].spec.service_cidr[]?')
+# echo "IN_USE_CIDRS=$IN_USE_CIDRS"
+
+if [ "$GENERATE_CLUSTER_CIDR" = "true" ]; then
+    CLUSTER_PREFIX="${K3S_CLUSTER_CIDR#*/}"
+    K3S_CLUSTER_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$CLUSTER_PREFIX")
+fi
+if check_cidr "$K3S_CLUSTER_CIDR" "$clusters"; then
+    echo "The specified cluster CIDR is already in use. Please select another or remove the --cluster-cidr argument to have a range selected automatically."
+    exit 1
+fi
+
+if [ "$GENERATE_SERVICE_CIDR" = "true" ]; then
+    SERVICE_PREFIX="${K3S_SERVICE_CIDR#*/}"
+    IN_USE_CIDRS="$IN_USE_CIDRS
+$K3S_CLUSTER_CIDR"
+    K3S_SERVICE_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$SERVICE_PREFIX")
+fi
+if check_cidr "$K3S_SERVICE_CIDR" "$clusters"; then
+    echo "The specified service CIDR is already in use. Please select another or remove the --service-cidr argument to have a range selected automatically."
+    exit 1
+fi
+
+echo "========== Configuration =========="
+echo "CLUSTERID=$CLUSTERID"
+echo "K3S_OPTIONS=$K3S_OPTIONS"
+echo "GATEWAY=$GATEWAY"
+echo "K3S_CLUSTER_CIDR=$K3S_CLUSTER_CIDR"
+echo "K3S_SERVICE_CIDR=$K3S_SERVICE_CIDR"
+echo -e "===================================\n"
+
+exit 0
+
+# Install k3s
+if [ `kubectl get nodes| grep ' Ready '| wc -l` -eq 0 ]; then
+    echo "Installing k3s..."
+    curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" INSTALL_K3S_EXEC="$K3S_OPTIONS --cluster-cidr=$K3S_CLUSTER_CIDR --service-cidr=$K3S_SERVICE_CIDR" sh -
+    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+    if [[ `grep "export KUBECONFIG=$KUBECONFIG" ~/.bashrc |wc -l` -eq 0 ]]; then
+        echo "export KUBECONFIG=$KUBECONFIG" >> ~/.bashrc
+    fi
+fi
+
+echo "Checking k3s has started..."
+result=`kubectl get nodes | grep ' Ready '| wc -l`
+startTime=`date +%s`
+while [[ $result -eq 0 && `expr \`date +%s\` - $startTime` -lt 1800 ]]; do
+    sleep 2
+    echo "Waiting for k3s nodes to be ready..."
+    result=`kubectl get nodes | grep ' Ready '| wc -l`
+done
+if [ $result -eq 0 ]; then
+    echo "There was a problem installing k3s..."
+    exit 1
+else
+    echo "k3s is running!"
+fi
+
+# If gateway is enabled, add the node label
+if [ "$GATEWAY" = "true" ]; then
+    kubectl get nodes -o name | xargs -I{} kubectl label {} "submariner.io/gateway=true"
+fi
+
+# Install subctl
+echo "Installing subctl..."
+curl -Ls https://get.submariner.io | bash
+export PATH=$PATH:~/.local/bin
+echo export PATH=\$PATH:~/.local/bin >> ~/.profile
+
 # Join this node to PandoNet
 if [ `kubectl -n submariner-operator get pods | grep ' Running '| wc -l` -eq 0 ]; then
-    SUBCTL_OPTS="--clusterid $CLUSTERID --globalnet --enable-clusterset-ip"
+    SUBCTL_OPTS="--clusterid $CLUSTERID --enable-clusterset-ip --cable-driver wireguard"
     if [ "$GATEWAY" = "false" ]; then
-        SUBCTL_OPTS+=" --natt=true"
+        SUBCTL_OPTS+=" --natt=true --disable-gateway"
+    else
+        SUBCTL_OPTS+=" --natt=false --preferred-server"
     fi
     subctl join --kubeconfig /etc/rancher/k3s/k3s.yaml ~/.pando/broker-info.subm $SUBCTL_OPTS
 fi
