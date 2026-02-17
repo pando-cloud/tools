@@ -380,7 +380,7 @@ if [ "$GATEWAY" = "true" ]; then
     echo "Checking nginx-gateway-fabric has started..."
     result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for nginx-gateway-fabric to start..."
         result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
@@ -417,14 +417,14 @@ spec:
 EOF
     result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
-    sleep 2
-    echo "Waiting for shared-gateway to be ready..."
-    result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
+    while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+        sleep 2
+        echo "Waiting for shared-gateway to be ready..."
+        result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
     done
     if [ $result -ne 1 ]; then
-    echo "There was a problem setting up the shared-gateway..."
-    exit 1
+        echo "There was a problem setting up the shared-gateway..."
+        exit 1
     fi
 
     # Extract the HTTP and HTTPS ports bound to the shared gateway
@@ -480,7 +480,7 @@ EOF
     sleep 10
     NGINX_READY=0
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for nginx to start..."
         curl http://localhost
@@ -506,7 +506,7 @@ EOF
     echo "Checking cert-manager has started..."
     result=`kubectl -n cert-manager get pods | grep -v 'Running' | wc -l`
     startTime=`date +%s`
-    while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for cert-manager to start..."
         result=`kubectl -n cert-manager get pods | grep -v 'Running' | wc -l`
