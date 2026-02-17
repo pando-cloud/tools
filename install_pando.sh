@@ -243,6 +243,7 @@ cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.data."ca.crt"' |
 
 # Retrieve the cluster list
 clusters=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/clusters)
+# echo "clusters=$clusters"
 IN_USE_CIDRS=$(echo "$clusters" | jq -r '.items[].spec.cluster_cidr[]?, .items[].spec.service_cidr[]?')
 # echo "IN_USE_CIDRS=$IN_USE_CIDRS"
 
@@ -318,6 +319,7 @@ echo export PATH=\$PATH:~/.local/bin >> ~/.profile
 
 # Join this node to PandoNet
 if [ `kubectl -n submariner-operator get pods | grep ' Running '| wc -l` -eq 0 ]; then
+    echo "Joining Pando Network..."
     SUBCTL_OPTS="--clusterid $CLUSTERID --enable-clusterset-ip --cable-driver wireguard"
     if [ "$GATEWAY" = "false" ]; then
         SUBCTL_OPTS+=" --natt=true --disable-gateway"
@@ -351,6 +353,7 @@ fi
 
 # Check that we have a connection to at least one of the primary gateway cluster.
 if [ "$GATEWAY" = "false" ]; then
+    gateways=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/gateways)
     result=`subctl show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
     startTime=`date +%s`
     while [[ $result -gt 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
