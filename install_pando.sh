@@ -9,6 +9,10 @@ GATEWAY=false
 UNINSTALL=false
 
 confirm() {
+    if [[ -n "$CONFIRM" ]]; then
+        return 0
+    fi
+
     while true; do
         read -r -p "$1? (y/n): " answer
 
@@ -112,11 +116,12 @@ uninstall() {
   echo "Uninstall complete!"
 }
 
-GETOPT=$(getopt -o g,o,u,h --long clusterid:,cluster-cidr:,service-cidr:,k3s-options:,gateway,uninstall,help -- "$@")
+GETOPT=$(getopt -o g,o,u,y,h --long confirm,clusterid:,cluster-cidr:,service-cidr:,k3s-options:,gateway,uninstall,help -- "$@")
 eval set -- "$GETOPT"
 while true
 do
     case "$1" in
+        -y | --confirm) CONFIRM="true"; shift;;
         --clusterid) CLUSTERID="$2"; shift 2;;
         --cluster-cidr) K3S_CLUSTER_CIDR="$2"; GENERATE_CLUSTER_CIDR=false; shift 2;;
         --service-cidr) K3S_SERVICE_CIDR="$2"; GENERATE_SERVICE_CIDR=false; shift 2;;
@@ -127,6 +132,7 @@ do
           echo "This script installs PandoNet and configures the machine as a worker node on the network."
 
           echo "Usage:"
+          echo -e "\t-y, --confirm\t\tAutomatically proceed with installation."
           echo -e "\t--clusterid <name>\t\tThe unique name of the machine to register to PandoNet. Defaults to `hostname`"
           echo -e "\t--cluster-cidr <cidr>\t\tThe unique CIDR range of the k3s cluster to use. If not set an CIDR will be automatically assigned based upon network available."
           echo -e "\t--service-cidr <cidr>\t\tThe unique CIDR range of the k3s cluster to use. If not set an CIDR will be automatically assigned based upon network available."
@@ -273,6 +279,8 @@ else
     rm -rf ~/.pando
     exit 1
 fi
+
+exit 0
 
 # Install k3s
 if [ `kubectl get nodes| grep ' Ready '| wc -l` -eq 0 ]; then
