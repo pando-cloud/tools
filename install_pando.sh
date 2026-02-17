@@ -8,6 +8,27 @@ GENERATE_SERVICE_CIDR=true
 GATEWAY=false
 UNINSTALL=false
 
+confirm() {
+    while true; do
+        read -r -p "$1? (y/n): " answer
+
+        case "${answer,,}" in
+            y|yes)
+                echo "Confirmed. Continuing..."
+                return 0
+                ;;
+            n|no)
+                echo "Cancelled."
+                return 1
+                ;;
+            *)
+                echo "Please enter y or n."
+                ;;
+        esac
+    done
+}
+
+
 # Convert CIDRs to sortable numeric form
 cidr_to_int() {
   local ip="${1%/*}"
@@ -245,7 +266,13 @@ echo "K3S_CLUSTER_CIDR=$K3S_CLUSTER_CIDR"
 echo "K3S_SERVICE_CIDR=$K3S_SERVICE_CIDR"
 echo -e "===================================\n"
 
-exit 0
+if confirm "Proceed?"; then
+    echo "Proceeding with installation..."
+else
+    echo "Cleaning up..."
+    rm -rf ~/.pando
+    exit 1
+fi
 
 # Install k3s
 if [ `kubectl get nodes| grep ' Ready '| wc -l` -eq 0 ]; then
