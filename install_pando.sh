@@ -381,15 +381,15 @@ if [ "$GATEWAY" = "true" ]; then
     result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
     startTime=`date +%s`
     while [[ $running && $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
-    sleep 2
-    echo "Waiting for nginx-gateway-fabric to start..."
-    result=`kubectl -n nginx get pods | grep -v 'Running' | wc -l`
+        sleep 2
+        echo "Waiting for nginx-gateway-fabric to start..."
+        result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
     done
     if [ $result -ne 1 ]; then
-    echo "There was a problem installing nginx-gateway-fabric..."
-    exit 1
+        echo "There was a problem installing nginx-gateway-fabric..."
+        exit 1
     else
-    echo "nginx-gateway-fabric is running!"
+        echo "nginx-gateway-fabric is running!"
     fi
 
     # Configure a single shared Gateway
