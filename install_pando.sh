@@ -415,21 +415,17 @@ spec:
       namespaces:
         from: All
 EOF
-    result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
+    result=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
     startTime=`date +%s`
     while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for shared-gateway to be ready..."
-        result=`kubectl -n nginx-gateway get svc | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
+        result=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
     done
     if [ $result -ne 1 ]; then
         echo "There was a problem setting up the shared-gateway..."
         exit 1
     fi
-
-    # Extract the HTTP and HTTPS ports bound to the shared gateway
-    HTTP_PORT=`kubectl -n nginx-gateway get svc shared-gateway -o jsonpath='{.spec.ports[?(@.port==80)].nodePort}'`
-    HTTPS_PORT=`kubectl -n nginx-gateway get svc shared-gateway -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}'`
 
     # Set up nginx reverse proxy
     echo "Installing nginx reverse proxy"
@@ -453,10 +449,14 @@ EOF
         fi
     fi
 
+    # Extract the HTTP and HTTPS ports bound to the shared gateway
+    HTTP_PORT=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' -o jsonpath='{.items[].spec.ports[?(@.port==80)].nodePort}'`
+    HTTPS_PORT=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' -o jsonpath='{.items[].spec.ports[?(@.port==443)].nodePort}'`
+
     # Check if we've already written to this file before
     if grep -qzE 'listen 80;[[:space:]]+proxy_pass 127\.0\.0\.1:[0-9]{1,5};' /etc/nginx/nginx.conf; then
         echo "Updating nginx configuration..."
-        sed -Ez 's|stream \{([^}]|\n)*\}|stream {\n    server {\n        listen 80;\n        proxy_pass 127.0.0.1:'"$HTTP_PORT"';\n    }\n    server {\n        listen 443;\n        proxy_pass 127.0.0.1:'"$HTTPS_PORT"';\n    }\n}|' /etc/nginx/nginx.conf
+        sed -Ez 's#stream \{([^\}]|\n)*\}#stream {\n    server {\n        listen 80;\n        proxy_pass 127.0.0.1:'"$HTTP_PORT"';\n    }\n    server {\n        listen 443;\n        proxy_pass 127.0.0.1:'"$HTTPS_PORT"';\n    }\n}#' /etc/nginx/nginx.conf
     else
         echo "Backing up nginx.conf..."
         sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
@@ -475,9 +475,10 @@ stream {
     }
 }
 EOF
-        if [[ -f /etc/nginx/sites-enabled/default ]]; then
-            sudo rm /etc/nginx/sites-enabled/default
-        fi
+    fi
+
+    if [[ -f /etc/nginx/sites-enabled/default ]]; then
+        sudo rm /etc/nginx/sites-enabled/default
     fi
     
     sudo systemctl restart nginx
@@ -488,18 +489,18 @@ EOF
     sleep 10
     NGINX_READY=0
     startTime=`date +%s`
-    while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    curl http://localhost
+    while [[ $? -eq 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for nginx to start..."
         curl http://localhost
         if [ $? -eq 0 ]; then
-        NGINX_READY=1
+            NGINX_READY=1
         fi
     done
     if [ $NGINX_READY -eq 0 ]; then
         echo "There was a problem configuring nginx reverse proxy."
         exit 1
-    fi
     fi
     echo "Reverse proxy is setup."
 
