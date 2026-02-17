@@ -280,8 +280,6 @@ else
     exit 1
 fi
 
-exit 0
-
 # Install k3s
 if [ `kubectl get nodes| grep ' Ready '| wc -l` -eq 0 ]; then
     echo "Installing k3s..."
@@ -326,6 +324,7 @@ if [ `kubectl -n submariner-operator get pods | grep ' Running '| wc -l` -eq 0 ]
     else
         SUBCTL_OPTS+=" --natt=false --preferred-server"
     fi
+    echo "subctl join --kubeconfig /etc/rancher/k3s/k3s.yaml ~/.pando/broker-info.subm $SUBCTL_OPTS"
     subctl join --kubeconfig /etc/rancher/k3s/k3s.yaml ~/.pando/broker-info.subm $SUBCTL_OPTS
 fi
 
