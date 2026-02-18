@@ -308,13 +308,13 @@ fi
 echo "Checking kube-system is ready..."
 result=`kubectl -n kube-system get pods | grep ' Running '| wc -l`
 startTime=`date +%s`
-while [[ $result -ge 3 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+while [[ $result -lt 3 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
     sleep 2
     echo "Waiting for kube-system to be ready..."
     result=`kubectl -n kube-system get pods | grep ' Running '| wc -l`
 done
-if [ $result -eq 0 ]; then
-    echo "There was a problem starting k3s..."
+if [ $result -lt 3 ]; then
+    echo "There was a problem starting k3s. Not all kube-system pods are ready."
     exit 1
 else
     echo "kube-system is ready!"
