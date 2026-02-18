@@ -507,7 +507,7 @@ EOF
         --set config.apiVersion="controller.config.cert-manager.io/v1alpha1" \
         --set config.kind="ControllerConfiguration" \
         --set config.enableGatewayAPI=true \
-        --set installCRDs=true
+        --set crds.enabled=true
     echo "Checking cert-manager has started..."
     result=`kubectl -n cert-manager get pods | grep -v 'Running' | wc -l`
     startTime=`date +%s`
