@@ -14,7 +14,7 @@ confirm() {
     fi
 
     while true; do
-        read -r -p "$1? (y/n): " answer
+        read -r -p "$1? (y/n): " answer < /dev/tty
 
         case "${answer,,}" in
             y|yes)
