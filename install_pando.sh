@@ -284,11 +284,13 @@ fi
 if [ `kubectl get nodes | grep ' Ready '| wc -l` -eq 0 ]; then
     echo "Installing k3s..."
     curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" INSTALL_K3S_EXEC="$K3S_OPTIONS --cluster-cidr=$K3S_CLUSTER_CIDR --service-cidr=$K3S_SERVICE_CIDR" sh -
-    export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
     if [[ `grep "export KUBECONFIG=$KUBECONFIG" ~/.bashrc |wc -l` -eq 0 ]]; then
         echo "export KUBECONFIG=$KUBECONFIG" >> ~/.bashrc
     fi
 fi
+
+# Make sure kubeconfig is available for future commands
+KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
 echo "Checking k3s has started..."
 result=`kubectl get nodes | grep ' Ready '| wc -l`
@@ -340,8 +342,8 @@ if [ `kubectl -n submariner-operator get pods | grep ' Running '| wc -l` -eq 0 ]
     else
         SUBCTL_OPTS+=" --natt=false --preferred-server"
     fi
-    echo "subctl join --kubeconfig /etc/rancher/k3s/k3s.yaml ~/.pando/broker-info.subm $SUBCTL_OPTS"
-    subctl join --kubeconfig /etc/rancher/k3s/k3s.yaml ~/.pando/broker-info.subm $SUBCTL_OPTS
+    echo "subctl join --kubeconfig $KUBECONFIG ~/.pando/broker-info.subm $SUBCTL_OPTS"
+    subctl join --kubeconfig $KUBECONFIG ~/.pando/broker-info.subm $SUBCTL_OPTS
 fi
 
 # Check that all submariners pods are running
@@ -368,12 +370,12 @@ fi
 # Check that we have a connection to at least one of the primary gateway cluster.
 if [ "$GATEWAY" = "false" ]; then
     gateways=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/gateways)
-    result=`subctl show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
+    result=`subctl --kubeconfig $KUBECONFIG show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
     startTime=`date +%s`
     while [[ $result -gt 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for connection to gateway..."
-        result=`subctl show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
+        result=`subctl --kubeconfig $KUBECONFIG show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
     done
     if [ $result -eq 0 ]; then
         echo "There was a problem establishing a connection to the gateway..."
