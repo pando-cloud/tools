@@ -294,12 +294,15 @@ echo "K3S_CLUSTER_CIDR=$K3S_CLUSTER_CIDR"
 echo "K3S_SERVICE_CIDR=$K3S_SERVICE_CIDR"
 echo -e "===================================\n"
 
-if confirm "Proceed?"; then
-    echo "Proceeding with installation..."
-else
-    echo "Cleaning up..."
-    rm -rf ~/.pando
-    exit 1
+# Don't prompt for confirmation when loaded from existing config
+if [ ! "$CONFIG_LOADED" = "true" ]; then
+    if confirm "Proceed"; then
+        echo "Proceeding with installation..."
+    else
+        echo "Cleaning up..."
+        rm -rf ~/.pando
+        exit 1
+    fi
 fi
 
 # Download a copy of this script for later re-use
