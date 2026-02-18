@@ -32,7 +32,6 @@ confirm() {
     done
 }
 
-
 # Convert CIDRs to sortable numeric form
 cidr_to_int() {
   local ip="${1%/*}"
