@@ -111,7 +111,9 @@ uninstall() {
   sudo /usr/local/bin/k3s-uninstall.sh
   echo "Removing subctl..."
   rm ~/.local/bin/subctl
+  echo "Removing pando..."
   rm -rf ~/.pando
+  sudo rm /usr/local/bin/pando.sh
   echo "Uninstall complete!"
 }
 
@@ -154,9 +156,26 @@ if [ "$UNINSTALL" = "true" ]; then
     exit 0
 fi
 
-# Create the broker-info.subm file needed to join PandoNet
-mkdir -p ~/.pando
-cat <<'EOF' > ~/.pando/broker-info.subm
+# Check if the ~.pando directory exists, if not create it
+if [[ ! -d ~/.pando ]]; then
+    # Create the broker-info.subm file needed to join PandoNet
+    mkdir -p ~/.pando
+fi
+
+# Check for existing configuration and load it
+if [[ -e "~/.pando/config.json" ]]; then
+    # Load the existing configuration
+    CLUSTERID=$(cat ~/.pando/config.json | jq -r '.clusterid')
+    GATEWAY=$(cat ~/.pando/config.json | jq -r '.gateway')
+    K3S_CLUSTER_CIDR=$(cat ~/.pando/config.json | jq -r '.k3s.cluster-cidr')
+    K3S_SERVICE_CIDR=$(cat ~/.pando/config.json | jq -r '.k3s.service-cidr')
+    K3S_OPTIONS=$(cat ~/.pando/config.json | jq -r '.k3s.options')
+    CONFIG_LOADED="true"
+fi
+
+# Check if the broker-info.subm file is available
+if [[ ! -e "~/.pando/broker-info.subm" ]]; then
+    cat <<'EOF' > ~/.pando/broker-info.subm
 ewogICJicm9rZXJVUkwiOiAiaHR0cHM6Ly81NC4xODMuMjA0LjE2Njo2NDQzIiwKICAiY2xpZW50
 VG9rZW4iOiB7CiAgICAibWV0YWRhdGEiOiB7CiAgICAgICJuYW1lIjogInN1Ym1hcmluZXItazhz
 LWJyb2tlci1hZG1pbi10b2tlbi10dm05YyIsCiAgICAgICJnZW5lcmF0ZU5hbWUiOiAic3VibWFy
@@ -233,6 +252,7 @@ cTJtaGo5c3BQQ3BseXdtRzBnbXBxUjdTSWJRSVE5dTNFN3lHMjBCYy9CUkJzRDVVblNaNVVNIgog
 ICAgfQogIH0sCiAgInNlcnZpY2VEaXNjb3ZlcnkiOiB0cnVlLAogICJDb21wb25lbnRzIjogWwog
 ICAgImNvbm5lY3Rpdml0eSIsCiAgICAic2VydmljZS1kaXNjb3ZlcnkiCiAgXQp9Cg==
 EOF
+fi
 
 # Extract the broker's API connection info from the broker-info.subm file
 brokerURL=$(cat ~/.pando/broker-info.subm | base64 -d | jq -r '.brokerURL')
@@ -240,28 +260,30 @@ namespace=$(cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.meta
 auth_token=$(cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.data.token' | base64 -d)
 cat ~/.pando/broker-info.subm | base64 -d | jq -r '.clientToken.data."ca.crt"' | base64 -d > ~/.pando/ca.crt
 
-# Retrieve the cluster list
-clusters=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/clusters)
-# echo "clusters=$clusters"
-IN_USE_CIDRS=$(echo "$clusters" | jq -r '.items[].spec.cluster_cidr[]?, .items[].spec.service_cidr[]?')
-# echo "IN_USE_CIDRS=$IN_USE_CIDRS"
+if [ ! "$CONFIG_LOADED" = "true" ]; then
+    # Retrieve the cluster list
+    clusters=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/clusters)
+    # echo "clusters=$clusters"
+    IN_USE_CIDRS=$(echo "$clusters" | jq -r '.items[].spec.cluster_cidr[]?, .items[].spec.service_cidr[]?')
+    # echo "IN_USE_CIDRS=$IN_USE_CIDRS"
 
-if [ "$GENERATE_CLUSTER_CIDR" = "true" ]; then
-    K3S_CLUSTER_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$K3S_CLUSTER_CIDR")
-fi
-if check_cidr "$K3S_CLUSTER_CIDR" "$clusters"; then
-    echo "The specified cluster CIDR is already in use. Please select another or remove the --cluster-cidr argument to have a range selected automatically."
-    exit 1
-fi
+    if [ "$GENERATE_CLUSTER_CIDR" = "true" ]; then
+        K3S_CLUSTER_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$K3S_CLUSTER_CIDR")
+    fi
+    if check_cidr "$K3S_CLUSTER_CIDR" "$clusters"; then
+        echo "The specified cluster CIDR is already in use. Please select another or remove the --cluster-cidr argument to have a range selected automatically."
+        exit 1
+    fi
 
-if [ "$GENERATE_SERVICE_CIDR" = "true" ]; then
-    IN_USE_CIDRS="$IN_USE_CIDRS
-$K3S_CLUSTER_CIDR"
-    K3S_SERVICE_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$K3S_SERVICE_CIDR")
-fi
-if check_cidr "$K3S_SERVICE_CIDR" "$clusters"; then
-    echo "The specified service CIDR is already in use. Please select another or remove the --service-cidr argument to have a range selected automatically."
-    exit 1
+    if [ "$GENERATE_SERVICE_CIDR" = "true" ]; then
+        IN_USE_CIDRS="$IN_USE_CIDRS
+    $K3S_CLUSTER_CIDR"
+        K3S_SERVICE_CIDR=$(get_next_cidr "$IN_USE_CIDRS" "$K3S_SERVICE_CIDR")
+    fi
+    if check_cidr "$K3S_SERVICE_CIDR" "$clusters"; then
+        echo "The specified service CIDR is already in use. Please select another or remove the --service-cidr argument to have a range selected automatically."
+        exit 1
+    fi
 fi
 
 echo "========== Configuration =========="
@@ -279,6 +301,10 @@ else
     rm -rf ~/.pando
     exit 1
 fi
+
+# Download a copy of this script for later re-use
+sudo wget -o /usr/local/bin/pando.sh get.pando.cloud
+sudo chmod a+x /usr/local/bin/pando.sh
 
 # Install k3s
 if [ `kubectl get nodes | grep ' Ready '| wc -l` -eq 0 ]; then
@@ -559,5 +585,19 @@ spec:
             kind: Gateway
 EOF
 fi # if $gateway=true
+
+# Save configuration for future re-use
+echo "Saving configuration..."
+cat <<'EOF' > ~/.pando/config.json
+{
+    clusterid: $CLUSTERID,
+    gateway: $GATEWAY,
+    k3s: {
+        cluster-cidr: $K3S_CLUSTER_CIDR,
+        service-cidr: $K3S_SERVICE_CIDR,
+        options: $K3S_OPTIONS
+    }
+}
+EOF
 
 echo "Pando installed successfully!"
