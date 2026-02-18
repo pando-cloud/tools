@@ -372,7 +372,7 @@ if [ "$GATEWAY" = "false" ]; then
     gateways=$(curl -s -H "Authorization: Bearer $auth_token" --cacert ~/.pando/ca.crt $brokerURL/apis/submariner.io/v1/namespaces/$namespace/gateways)
     result=`subctl --kubeconfig $KUBECONFIG show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
     startTime=`date +%s`
-    while [[ $result -gt 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    while [[ $result -eq 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for connection to gateway..."
         result=`subctl --kubeconfig $KUBECONFIG show connections | grep -E 'dfw|sjc|was' | grep ' connected ' | wc -l`
