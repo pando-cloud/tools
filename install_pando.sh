@@ -170,6 +170,9 @@ if [[ -e "~/.pando/config.json" ]]; then
     K3S_CLUSTER_CIDR=$(cat ~/.pando/config.json | jq -r '.k3s.cluster-cidr')
     K3S_SERVICE_CIDR=$(cat ~/.pando/config.json | jq -r '.k3s.service-cidr')
     K3S_OPTIONS=$(cat ~/.pando/config.json | jq -r '.k3s.options')
+
+    echo "Found existing installation..."
+    echo "Components will be upgraded and/or repaired."
     CONFIG_LOADED="true"
 fi
 
@@ -284,18 +287,16 @@ if [ ! "$CONFIG_LOADED" = "true" ]; then
         echo "The specified service CIDR is already in use. Please select another or remove the --service-cidr argument to have a range selected automatically."
         exit 1
     fi
-fi
 
-echo "========== Configuration =========="
-echo "CLUSTERID=$CLUSTERID"
-echo "K3S_OPTIONS=$K3S_OPTIONS"
-echo "GATEWAY=$GATEWAY"
-echo "K3S_CLUSTER_CIDR=$K3S_CLUSTER_CIDR"
-echo "K3S_SERVICE_CIDR=$K3S_SERVICE_CIDR"
-echo -e "===================================\n"
+    echo "========== Configuration =========="
+    echo "CLUSTERID=$CLUSTERID"
+    echo "K3S_OPTIONS=$K3S_OPTIONS"
+    echo "GATEWAY=$GATEWAY"
+    echo "K3S_CLUSTER_CIDR=$K3S_CLUSTER_CIDR"
+    echo "K3S_SERVICE_CIDR=$K3S_SERVICE_CIDR"
+    echo -e "===================================\n"
 
-# Don't prompt for confirmation when loaded from existing config
-if [ ! "$CONFIG_LOADED" = "true" ]; then
+    # Don't prompt for confirmation when loaded from existing config
     if confirm "Proceed"; then
         echo "Proceeding with installation..."
     else
