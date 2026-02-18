@@ -282,7 +282,7 @@ else
 fi
 
 # Install k3s
-if [ `kubectl get nodes| grep ' Ready '| wc -l` -eq 0 ]; then
+if [ `kubectl get nodes | grep ' Ready '| wc -l` -eq 0 ]; then
     echo "Installing k3s..."
     curl -sfL https://get.k3s.io | K3S_KUBECONFIG_MODE="644" INSTALL_K3S_EXEC="$K3S_OPTIONS --cluster-cidr=$K3S_CLUSTER_CIDR --service-cidr=$K3S_SERVICE_CIDR" sh -
     export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
@@ -304,6 +304,21 @@ if [ $result -eq 0 ]; then
     exit 1
 else
     echo "k3s is running!"
+fi
+
+echo "Checking kube-system is ready..."
+result=`kubectl -n kube-system get pods | grep ' Running '| wc -l`
+startTime=`date +%s`
+while [[ $result -ge 3 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    sleep 2
+    echo "Waiting for kube-system to be ready..."
+    result=`kubectl -n kube-system get pods | grep ' Running '| wc -l`
+done
+if [ $result -eq 0 ]; then
+    echo "There was a problem starting k3s..."
+    exit 1
+else
+    echo "kube-system is ready!"
 fi
 
 # If gateway is enabled, add the node label
