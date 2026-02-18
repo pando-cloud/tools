@@ -307,7 +307,7 @@ if [ ! "$CONFIG_LOADED" = "true" ]; then
 fi
 
 # Download a copy of this script for later re-use
-sudo wget -o /usr/local/bin/pando.sh get.pando.cloud
+sudo wget -O /usr/local/bin/pando.sh get.pando.cloud
 sudo chmod a+x /usr/local/bin/pando.sh
 
 # Install k3s
