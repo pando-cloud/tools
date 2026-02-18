@@ -456,7 +456,7 @@ EOF
     # Check if we've already written to this file before
     if grep -qzE 'listen 80;[[:space:]]+proxy_pass 127\.0\.0\.1:[0-9]{1,5};' /etc/nginx/nginx.conf; then
         echo "Updating nginx configuration..."
-        sed -Ez 's#stream \{([^\}]|\n)*\}#stream {\n    server {\n        listen 80;\n        proxy_pass 127.0.0.1:'"$HTTP_PORT"';\n    }\n    server {\n        listen 443;\n        proxy_pass 127.0.0.1:'"$HTTPS_PORT"';\n    }\n}#' /etc/nginx/nginx.conf
+        sed -nEz 's#stream \{([^\}]|\n)*\}#stream {\n    server {\n        listen 80;\n        proxy_pass 127.0.0.1:'"$HTTP_PORT"';\n    }\n    server {\n        listen 443;\n        proxy_pass 127.0.0.1:'"$HTTPS_PORT"';\n    }\n}#' /etc/nginx/nginx.conf
     else
         echo "Backing up nginx.conf..."
         sudo cp /etc/nginx/nginx.conf /etc/nginx/nginx.conf.bak
@@ -487,18 +487,14 @@ EOF
         exit 1
     fi
     sleep 10
-    NGINX_READY=0
     startTime=`date +%s`
-    curl http://localhost
-    while [[ $? -eq 0 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
+    result=$(curl -s -o /dev/null -w "%{http_code}" http://localhost)
+    while [[ $result -ge 500 && $result -lt 600 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for nginx to start..."
-        curl http://localhost
-        if [ $? -eq 0 ]; then
-            NGINX_READY=1
-        fi
+        result=$(curl -s -o /dev/null -w "%{http_code}" http://localhost)
     done
-    if [ $NGINX_READY -eq 0 ]; then
+    if [[ $result -ge 500 && $result -lt 600 ]]; then
         echo "There was a problem configuring nginx reverse proxy."
         exit 1
     fi
@@ -547,3 +543,5 @@ spec:
             kind: Gateway
 EOF
 fi # if $gateway=true
+
+echo "Pando installed successfully!"
