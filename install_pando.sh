@@ -417,26 +417,56 @@ fi
 
 # If this is going to be a gateway/proxy node for the network then setup a Gateway API controller
 if [ "$GATEWAY" = "true" ]; then
-    # Install nginx-gateway-fabric
-    echo "Installing nginx-gateway-fabric"
-    kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.4.1/standard-install.yaml
-    kubectl kustomize "https://github.com/nginx/nginx-gateway-fabric/config/crd/gateway-api/standard?ref=v2.2.1" \
-    | kubectl apply -f -
-    helm install ngf oci://ghcr.io/nginx/charts/nginx-gateway-fabric --create-namespace -n nginx-gateway --set nginx.service.type=NodePort
-    echo "Checking nginx-gateway-fabric has started..."
-    result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
-    startTime=`date +%s`
-    while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
-        sleep 2
-        echo "Waiting for nginx-gateway-fabric to start..."
-        result=`kubectl -n nginx-gateway get pods | grep -v 'Running' | wc -l`
-    done
+    # Install envoy gateway
+    echo "Installing envoy-gateway"
+    helm install eg oci://docker.io/envoyproxy/gateway-helm --version v0.0.0-latest -n envoy-gateway-system --create-namespace
+    echo "Checking envoy-gateway has started..."
+    kubectl wait --timeout=5m -n envoy-gateway-system deployment/envoy-gateway --for=condition=Available
     if [ $result -ne 1 ]; then
-        echo "There was a problem installing nginx-gateway-fabric..."
+        echo "There was a problem installing envoy-gateway..."
         exit 1
     else
-        echo "nginx-gateway-fabric is running!"
+        echo "envoy-gateway is running!"
     fi
+
+    # Configure Envoy for running NodePort gateways
+    cat << EOF | kubectl apply -f -
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: bare-metal-proxy
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: NodePort
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              ports:
+              - name: http
+                nodePort: 30080
+                port: 80
+              - name: https
+                nodePort: 30443
+                port: 443
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+  namespace: envoy-gateway-system
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef:
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: bare-metal-proxy
+    namespace: envoy-gateway-system
+EOF
 
     # Configure a single shared Gateway
     cat << EOF | kubectl apply -f -
@@ -444,29 +474,31 @@ apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
   name: shared-gateway
-  namespace: nginx-gateway
+  namespace: envoy-gateway-system
 spec:
-  gatewayClassName: nginx
+  gatewayClassName: envoy
   listeners:
-  - name: http
-    protocol: HTTP
+  - allowedRoutes:
+      namespaces:
+        from: All
+    name: http
     port: 80
-    allowedRoutes:
+    protocol: HTTP
+  - allowedRoutes:
       namespaces:
         from: All
-  - name: https
-    protocol: HTTPS
+    name: https
     port: 443
-    allowedRoutes:
-      namespaces:
-        from: All
+    protocol: HTTPS
+    tls:
+      mode: Terminate
 EOF
-    result=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
+    result=`kubectl -n envoy-gateway-system get svc | grep 'shared-gateway' | grep -E '80:[0-9]{1,5}/TCP(,?443:[0-9]{1,5}/TCP)?' | wc -l`
     startTime=`date +%s`
     while [[ $result -ne 1 && `expr \`date +%s\` - $startTime` -lt 300 ]]; do
         sleep 2
         echo "Waiting for shared-gateway to be ready..."
-        result=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' | grep -E '80:[0-9]{1,5}/TCP(443:[0-9]{1,5}/TCP)?' | wc -l`
+        result=`kubectl -n envoy-gateway-system get svc | grep 'shared-gateway' | grep -E '80:[0-9]{1,5}/TCP(,?443:[0-9]{1,5}/TCP)?' | wc -l`
     done
     if [ $result -ne 1 ]; then
         echo "There was a problem setting up the shared-gateway..."
@@ -496,8 +528,8 @@ EOF
     fi
 
     # Extract the HTTP and HTTPS ports bound to the shared gateway
-    HTTP_PORT=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' -o jsonpath='{.items[].spec.ports[?(@.port==80)].nodePort}'`
-    HTTPS_PORT=`kubectl -n nginx-gateway get svc -l 'gateway.networking.k8s.io/gateway-name=shared-gateway' -o jsonpath='{.items[].spec.ports[?(@.port==443)].nodePort}'`
+    HTTP_PORT=`kubectl -n envoy-gateway-system get svc -l 'gateway.envoyproxy.io/owning-gateway-name=shared-gateway' -o jsonpath='{.items[].spec.ports[?(@.port==80)].nodePort}'`
+    HTTPS_PORT=`kubectl -n envoy-gateway-system get svc -l 'gateway.envoyproxy.io/owning-gateway-name=shared-gateway' -o jsonpath='{.items[].spec.ports[?(@.port==443)].nodePort}'`
 
     # Check if we've already written to this file before
     if grep -qzE 'listen 80;[[:space:]]+proxy_pass 127\.0\.0\.1:[0-9]{1,5};' /etc/nginx/nginx.conf; then
@@ -576,17 +608,18 @@ metadata:
   name: letsencrypt-prod
 spec:
   acme:
-    server: https://acme-v02.api.letsencrypt.org/directory
     email: pandocloud@outlook.com
     privateKeySecretRef:
       name: letsencrypt-issuer-key
+    server: https://acme-v02.api.letsencrypt.org/directory
     solvers:
     - http01:
         gatewayHTTPRoute:
           parentRefs:
-          - name: shared-gateway
-            namespace: nginx-gateway
+          - group: gateway.networking.k8s.io
             kind: Gateway
+            name: shared-gateway
+            namespace: envoy-gateway-system
 EOF
 fi # if $gateway=true
 
